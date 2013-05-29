@@ -118,7 +118,7 @@ class Config():
     def cobbler_nodes(self, ci, nodes):
         all_nodes = {}
         for node in nodes:
-            interfaces = {
+            interfaces_node = {
                 INTERFACES.get('internal'):
                     {
                         "mac": node.interfaces.filter(network__name='internal')[0].mac_address,
@@ -140,7 +140,7 @@ class Config():
                      "userctl": 'yes'}
             }
             all_nodes.update({node.name: {"hostname": node.name,
-                                          "interfaces": interfaces,
+                                          "interfaces": interfaces_node,
                                           "interfaces_extra": interfaces_extra,
                                           }
             }
