@@ -3,8 +3,8 @@ from time import sleep
 from devops.helpers.helpers import ssh
 import glanceclient
 import keystoneclient.v2_0
-from quantumclient.quantum import client as q_client
-#from quantumclient.v2_0 import client as q_client
+#from quantumclient.quantum import client as q_client
+from quantumclient.v2_0 import client as q_client
 import os
 from fuel_test.ci.ci_vm import CiVM
 from fuel_test.helpers import load, retry, install_packages, switch_off_ip_tables
@@ -15,7 +15,7 @@ from fuel_test.settings import ADMIN_USERNAME, ADMIN_PASSWORD, ADMIN_TENANT_ESSE
 class Prepare(object):
     def __init__(self):
         self.controllers = self.ci().nodes().controllers
-        if len(self.controllers) == 1:
+        if len(self.controllers):
             self.public_ip = self.controllers[0].get_ip_address_by_network_name('public')
             self.internal_ip = self.controllers[0].get_ip_address_by_network_name('internal')
         else:
