@@ -38,7 +38,7 @@ class SingleTestCase(CobblerTestCase):
         config = Config().generate(
             template=Template.single(),
             ci=self.ci(),
-            nodes=[self.ci().nodes().controllers[:1]],
+            nodes=self.ci().nodes().controllers[:1],
             quantum=False
         )
         print "Generated config.yaml:", config
