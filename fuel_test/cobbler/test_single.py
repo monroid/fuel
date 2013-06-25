@@ -7,6 +7,18 @@ from fuel_test.settings import CREATE_SNAPSHOTS, PUPPET_AGENT_COMMAND, ASTUTE_US
 
 
 class SingleTestCase(CobblerTestCase):
+    """
+    Deploy openstack in single mode.
+    Supports multiple deployment tool -- astute or puppet.
+    By default:
+        master x1
+        controller(compute) x1
+        compute x0
+        storage x0
+        proxy x0
+        quantum x0
+
+    """
     def deploy(self):
         if ASTUTE_USE:
             self.prepare_astute()
