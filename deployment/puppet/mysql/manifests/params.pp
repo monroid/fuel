@@ -16,27 +16,33 @@ class mysql::params {
   $port                = 3306
   $etc_root_password   = false
   $ssl                 = false
-
-  case $::operatingsystem {
-    "Ubuntu": {
-      $service_provider = upstart
-    }
-    default: {
-      $service_provider = undef
-    }
-  }
+  $server_id           = delete(delete(delete("$::hostname",'controller-'),'fuel-'),"node-")
+  $service_provider = undef
 
   case $::osfamily {
     'RedHat': {
       $basedir               = '/usr'
       $datadir               = '/var/lib/mysql'
-      $service_name          = 'mysql'
-      $client_package_name   = 'MySQL-client'
-      $client_version        = '5.5.28-6'
-      $server_package_name   = 'MySQL-server'
-      $server_version        = '5.5.28-6'
-      $shared_package_name   = 'MySQL-shared'
-      $shared_version        = '5.5.28_wsrep_23.7'
+      case $::operatingsystem {
+        'RedHat': {
+           $service_name          = 'mysqld'
+           $client_package_name   = 'mysql'
+           $client_version        = '5.1.69-1'
+           $server_package_name   = 'mysql-server'
+           $server_version        = '5.1.69-1'
+           $shared_package_name   = 'mysql-libs'
+           $shared_version        = '5.1.69-1'
+         }
+      default: {
+           $service_name          = 'mysql'
+           $client_package_name   = 'MySQL-client'
+           $client_version        = '5.5.28_wsrep_23.7'
+           $server_package_name   = 'MySQL-server'
+           $server_version        = '5.5.28_wsrep_23.7'
+           $shared_package_name   = 'MySQL-shared'
+           $shared_version        = '5.5.28_wsrep_23.7'
+         }
+      }
       $socket                = '/var/lib/mysql/mysql.sock'
       $pidfile               = '/var/run/mysqld/mysqld.pid'
       $config_file           = '/etc/my.cnf'
@@ -56,11 +62,8 @@ class mysql::params {
       $datadir              = '/var/lib/mysql'
       $service_name         = 'mysql'
       $client_package_name  = 'mysql-client'
-      $client_version       = '5.5.29-0ubuntu0.12.04.1' # not used now 20130313 /sv
-      $server_package_name  = 'mysql-server'
-      $server_version       = '5.5.29-0ubuntu0.12.04.1' # not used now 20130313 /sv
+      $server_package_name  = 'mysql-server-wsrep'
       $shared_package_name  = 'mysql-common'
-      $shared_version       = '5.5.29-0ubuntu0.12.04.1' # not used now 20130313 /sv
       $socket               = '/var/run/mysqld/mysqld.sock'
       $pidfile              = '/var/run/mysqld/mysqld.pid'
       $config_file          = '/etc/mysql/my.cnf'

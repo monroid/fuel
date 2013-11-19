@@ -2,20 +2,62 @@
 keys = root
 
 [handlers]
-keys = syslog
+keys = production,devel,stderr
 
 [formatters]
-keys = default
+keys = normal,debug
 
 [logger_root]
-level = DEBUG
-handlers = syslog
-qualname = keystone
+level = NOTSET
+handlers = production,devel,stderr
+propagate = 1
 
-[handler_syslog]
+[formatter_debug]
+format = keystone-%(name)s %(levelname)s: %(module)s %(funcName)s %(message)s
+
+[formatter_normal]
+format = keystone-%(name)s %(levelname)s: %(message)s
+
+# logging info to LOG_<%= @syslog_log_facility %> with debug:<%= @debug %> and verbose:<%= @verbose %>
+[handler_production]
 class = handlers.SysLogHandler
-args = ('/dev/log', handlers.SysLogHandler.LOG_LOCAL1)
-formatter = default
+<% if @debug then -%>
+level = DEBUG
+formatter = debug
+<% elsif @verbose then -%>
+level = INFO
+formatter = normal
+<% else -%>
+level = <%= @syslog_log_level %>
+formatter = normal
+<% end -%>
+args = ('/dev/log', handlers.SysLogHandler.LOG_<%= @syslog_log_facility %>)
 
-[formatter_default]
-format = keystone %(name)s %(levelname)s %(message)s
+# TODO find out how it could be usefull and how it should be used
+[handler_stderr]
+class = StreamHandler
+<% if @debug then -%>
+level = DEBUG
+formatter = debug
+<% elsif @verbose then -%>
+level = INFO
+formatter = normal
+<% else -%>
+level = <%= @syslog_log_level %>
+formatter = normal
+<% end -%>
+args = (sys.stderr,)
+
+[handler_devel]
+class = StreamHandler
+<% if @debug then -%>
+level = DEBUG
+formatter = debug
+<% elsif @verbose then -%>
+level = INFO
+formatter = normal
+<% else -%>
+level = <%= @syslog_log_level %>
+formatter = normal
+<% end -%>
+args = (sys.stdout,)

@@ -1,3 +1,18 @@
+#    Copyright 2013 Mirantis, Inc.
+#
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
+#
+#         http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
+#
+#
 # these parameters need to be accessed from several locations and
 # should be considered to be constant
 class galera::params {
@@ -7,29 +22,16 @@ class galera::params {
 
   case $::osfamily {
     'RedHat': {
-      $pkg_provider         = 'yum'
-      #$pkg_provider         = 'rpmforce'
       $libssl_package       = 'openssl098e'
       $libaio_package       = 'libaio'
-      # $mysql_client_package = 'mysql'
       $mysql_version        = '5.5.28_wsrep_23.7-12'
-#      $mysql_server_package = 'MySQL-server-wsrep-5.5.28_wsrep_23.7-11.x86_64.rpm'
       $mysql_server_name    = 'MySQL-server-wsrep'
-#      $galera_package       = 'galera-23.2.2-1.rhel5.x86_64.rpm'
-      $galera_version       = '23.2.2-1.rhel5'
       $libgalera_prefix     = '/usr/lib64'
     }
     'Debian': {
-      $pkg_provider         = 'apt'
-      #$pkg_provider         = 'dpkg'
       $libssl_package       = 'libssl0.9.8'
       $libaio_package       = 'libaio1'
-      # $mysql_client_package = 'mysql-client'
-#      $mysql_version        = '5.5.28-23.7'
-#      $mysql_server_package = 'mysql-server-wsrep-5.5.28-23.7-amd64.deb'
       $mysql_server_name    = 'mysql-server-wsrep'
-      $galera_version       = '23.2.2'
-#      $galera_package       = 'galera-23.2.2-amd64.deb'
       $libgalera_prefix     = '/usr/lib'
     }
     default: {

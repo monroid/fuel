@@ -38,35 +38,42 @@ class openstack::db::mysql (
     $glance_db_password,
     $nova_db_password,
     $cinder_db_password,
-    $quantum_db_password,
+    $neutron_db_password,
+    $ceilometer_db_password,
     # MySQL
-    $mysql_bind_address     = '0.0.0.0',
-    $mysql_account_security = true,
+    $mysql_bind_address      = '0.0.0.0',
+    $mysql_account_security  = true,
     # Keystone
-    $keystone_db_user       = 'keystone',
-    $keystone_db_dbname     = 'keystone',
+    $keystone_db_user        = 'keystone',
+    $keystone_db_dbname      = 'keystone',
     # Glance
-    $glance_db_user         = 'glance',
-    $glance_db_dbname       = 'glance',
+    $glance_db_user          = 'glance',
+    $glance_db_dbname        = 'glance',
     # Nova
-    $nova_db_user           = 'nova',
-    $nova_db_dbname         = 'nova',
-    $allowed_hosts          = false,
+    $nova_db_user            = 'nova',
+    $nova_db_dbname          = 'nova',
+    $allowed_hosts           = false,
+    # Ceilometer
+    $ceilometer              = false,
+    $ceilometer_db_user      = 'ceilometer',
+    $ceilometer_db_dbname    = 'ceilometer',
     # Cinder
-    $cinder                 = true,
-    $cinder_db_user         = 'cinder',
-    $cinder_db_dbname       = 'cinder',
-    # quantum
-    $quantum                = true,
-    $quantum_db_user        = 'quantum',
-    $quantum_db_dbname      = 'quantum',
-    $enabled                = true,
-    $galera_cluster_name    = 'openstack',
-    $primary_controller     = false,
-    $galera_node_address = '127.0.0.1',
-    $galera_nodes = ['127.0.0.1'],
+    $cinder                  = true,
+    $cinder_db_user          = 'cinder',
+    $cinder_db_dbname        = 'cinder',
+    # neutron
+    $neutron                 = true,
+    $neutron_db_user         = 'neutron',
+    $neutron_db_dbname       = 'neutron',
+    $enabled                 = true,
+    $galera_cluster_name     = 'openstack',
+    $primary_controller      = false,
+    $galera_node_address     = '127.0.0.1',
+    $db_host                = '127.0.0.1',
+    $galera_nodes            = ['127.0.0.1'],
     $mysql_skip_name_resolve = false,
-    $custom_setup_class = undef
+    $custom_setup_class      = undef,
+    $use_syslog              = false,
 ) {
 
   # Install and configure MySQL Server
@@ -84,13 +91,14 @@ class openstack::db::mysql (
       # 'root_password' => $mysql_root_password,
       'bind_address'  => '0.0.0.0'
     },
-    galera_cluster_name	=> $galera_cluster_name,
-    primary_controller => $primary_controller,
-    galera_node_address	=> $galera_node_address,
-    galera_nodes      => $galera_nodes,
-    enabled => $enabled,
-    custom_setup_class => $custom_setup_class,
+    galera_cluster_name	    => $galera_cluster_name,
+    primary_controller      => $primary_controller,
+    galera_node_address	    => $galera_node_address,
+    galera_nodes            => $galera_nodes,
+    enabled                 => $enabled,
+    custom_setup_class      => $custom_setup_class,
     mysql_skip_name_resolve => $mysql_skip_name_resolve,
+    use_syslog              => $use_syslog,
   }
 
 
@@ -124,6 +132,16 @@ class openstack::db::mysql (
       allowed_hosts => $allowed_hosts,
     }
 
+    # Create the Ceilometer db
+    if ($ceilometer) {
+      class { 'ceilometer::db::mysql':
+        user          => $ceilometer_db_user,
+        password      => $ceilometer_db_password,
+        dbname        => $ceilometer_db_dbname,
+        allowed_hosts => $allowed_hosts,
+      }
+    }
+
     # create cinder db
     if ($cinder) {
       class { 'cinder::db::mysql':
@@ -134,14 +152,15 @@ class openstack::db::mysql (
       }
     }
 
-    # create quantum db
-    if ($quantum) {
-      class { 'quantum::db::mysql':
-        user          => $quantum_db_user,
-        password      => $quantum_db_password,
-        dbname        => $quantum_db_dbname,
+    # create neutron db
+    if ($neutron) {
+      class { 'neutron::db::mysql':
+        user          => $neutron_db_user,
+        password      => $neutron_db_password,
+        dbname        => $neutron_db_dbname,
         allowed_hosts => $allowed_hosts,
       }
     }
   }
 }
+

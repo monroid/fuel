@@ -77,7 +77,7 @@ class corosync (
 ) {
   # Making it possible to provide data with parameterized class declarations or
   # Console.
-  
+
   if $unicast_addresses == undef {
     $corosync_conf = "${module_name}/corosync.conf.erb"
   } else {
@@ -88,6 +88,16 @@ class corosync (
   # this value is provided.  This is emulating a required variable as defined in
   # parameterized class.
 
+  file { 'limitsconf':
+    ensure  => present,
+    path    => '/etc/security/limits.conf',
+    source => 'puppet:///modules/corosync/limits.conf',
+    replace => true,
+    owner   => '0',
+    group   => '0',
+    mode    => '0644',
+    before => Service["corosync"],
+  }
   
   
   # Using the Puppet infrastructure's ca as the authkey, this means any node in
@@ -103,7 +113,15 @@ class corosync (
       notify => Service['corosync'],
     }
   }
-
+  if $::operatingsystem == 'Ubuntu' {
+       file { "/etc/init/corosync.override":
+         replace => "no",
+         ensure  => "present",
+         content => "manual",
+         mode    => 644,
+         before  => Package[corosync],
+      }
+  }
   package { ['corosync', 'pacemaker']: ensure => present }
 
   if $::osfamily == "RedHat"
@@ -158,7 +176,14 @@ class corosync (
       require => Package['corosync'],
       before  => Service['corosync'],
     }
+    if $::operatingsystem == 'Ubuntu' {
+      exec { 'rm_corosync_override':
+        command => '/bin/rm -f /etc/init/corosync.override',
+        path    => ['/bin', '/usr/bin'],
+      }
+    } 
   }
+
 
   if $check_standby == true {
     # Throws a puppet error if node is on standby
@@ -186,4 +211,5 @@ class corosync (
     enable    => true,
     subscribe => File[['/etc/corosync/corosync.conf', '/etc/corosync/service.d']],
   }
+ 
 }

@@ -1,3 +1,4 @@
+require 'timeout'
 require 'ipaddr'
 
 begin
@@ -60,7 +61,7 @@ Puppet::Type.type(:l3_if_downup).provide(:ruby) do
     rv = false
     loop do
       begin
-        ping(['-c1',ipaddr])
+        ping(['-n', '-c1', ipaddr])
         rv = true
         break
       rescue Puppet::ExecutionFailure => e
@@ -80,7 +81,12 @@ Puppet::Type.type(:l3_if_downup).provide(:ruby) do
 
   def restart()
     begin # downing inteface
-      ifdn(@resource[:interface])
+      # add force for debian-based OS ([PRD-2132])
+      if Facter.value(:osfamily) == 'Debian'
+        ifdn(['--force',@resource[:interface]])
+      else
+        ifdn(@resource[:interface])
+      end
       notice("Interface '#{@resource[:interface]}' down.")
       sleep @resource[:sleep_time]
     rescue Puppet::ExecutionFailure
@@ -114,8 +120,45 @@ Puppet::Type.type(:l3_if_downup).provide(:ruby) do
     end
     return true if @resource[:onlydown]
     begin  # Put interface to UP state
-      ifup(@resource[:interface])
+      if Facter.value(:osfamily) == 'Debian'
+      # add force for debian-based OS ([PRD-2132])
+        ifup(['--force', @resource[:interface]])
+      else
+        ifup(@resource[:interface])
+      end
       notice("Interface '#{@resource[:interface]}' up.")
+      # checking and waiting carrier for PHYS. interface
+      if (@resource[:interface] =~ /^eth\d+$/) and @resource[:wait_carrier_after_ifup]
+        begin
+          Timeout::timeout(@resource[:wait_carrier_after_ifup_timeout]) do
+            _w = 10
+            loop do
+              begin
+                _rc = File.open("/sys/class/net/#{@resource[:interface]}/carrier", 'r'){ |file| file.read() }
+              rescue
+                _rc = -1
+              end
+              if _rc.to_i() == 1
+                break
+              elsif _rc.to_i() == -1
+                notice("Seems that the interface '#{@resource[:interface]}' was brought down administratively. Further deployment actions may fail!")
+                sleep(10)
+              else
+                if _w == 0
+                  notice("Interface '#{@resource[:interface]}' waiting for carrier...")
+                  _w = 10
+                end
+                sleep(1)
+                _w -= 1
+              end
+            end
+          end
+        rescue Timeout::Error
+          notice("Interface '#{@resource[:interface]}' has no carrier. :(")
+        else
+          notice("Interface '#{@resource[:interface]}' has good carrier.")
+        end
+      end
       if @resource[:check_by_ping] == 'gateway'
         # find gateway for interface and ping it
         ip_to_ping = find_gateway(@resource[:interface], @resource[:subscribe])
@@ -163,7 +206,7 @@ Puppet::Type.type(:l3_if_downup).provide(:ruby) do
   #       rg = line.match('^\s*([0-9A-Za-z\.\-\_]+):')
   #       if rg
   #         if_list.push(rg[1].to_sym)
-  #       end  
+  #       end
   #     end
   #   end
   #   return if_list

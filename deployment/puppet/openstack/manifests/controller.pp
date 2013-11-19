@@ -30,7 +30,8 @@
 #   Defaults to false.
 # [network_config] Hash that can be used to pass implementation specifc
 #   network settings. Optioal. Defaults to {}
-# [verbose] Whether to log services at verbose.
+# [verbose] Rather to print more verbose (INFO+) output. If non verbose and non debug, would give syslog_log_level (default is WARNING) output. Optional. Defaults to false.
+# [debug] Rather to print even more verbose (DEBUG+) output. If true, would ignore verbose option. Optional. Defaults to false.
 # [export_resources] Rather to export resources.
 # Horizon related config - assumes puppetlabs-horizon code
 # [secret_key]          secret key to encode cookies, …
@@ -38,12 +39,17 @@
 # [cache_server_port]   local memcached instance port
 # [swift]               (bool) is swift installed
 # [quantum]             (bool) is quantum installed
+# [quantum_config]      (hash) is quantum config hash
 #   The next is an array of arrays, that can be used to add call-out links to the dashboard for other apps.
 #   There is no specific requirement for these apps to be for monitoring, that's just the defacto purpose.
 #   Each app is defined in two parts, the display name, and the URI
 # [horizon_app_links]     array as in '[ ["Nagios","http://nagios_addr:port/path"],["Ganglia","http://ganglia_addr"] ]'
 # [enabled] Whether services should be enabled. This parameter can be used to
 #   implement services in active-passive modes for HA. Optional. Defaults to true.
+# [use_syslog] Rather or not service should log to syslog. Optional.
+# [syslog_log_facility] Facility for syslog, if used. Optional. Note: duplicating conf option
+#       wouldn't have been used, but more powerfull rsyslog features managed via conf template instead
+# [syslog_log_level] logging level for non verbose and non debug mode. Optional.
 #
 # === Examples
 #
@@ -81,11 +87,18 @@ class openstack::controller (
   # Required Nova
   $nova_db_password        = 'nova_pass',
   $nova_user_password      = 'nova_pass',
+  # Required Ceilometer
+  $ceilometer              = false,
+  $ceilometer_db_password  = 'ceilometer_pass',
+  $ceilometer_user_password = 'ceilometer_pass',
+  $ceilometer_metering_secret = 'ceilometer',
   # Required Horizon
   $secret_key              = 'dummy_secret_key',
   # not sure if this works correctly
   $internal_address,
   $admin_address,
+  # AMQP
+  $queue_provider          = 'rabbitmq',
   # Rabbit
   $rabbit_password         = 'rabbit_pw',
   $rabbit_user             = 'nova',
@@ -94,6 +107,13 @@ class openstack::controller (
   $rabbit_node_ip_address  = undef,
   $rabbit_ha_virtual_ip    = false, #Internal virtual IP for HA configuration
   $rabbit_port             = '5672',
+  # Qpid
+  $qpid_password           = 'qpid_pw',
+  $qpid_user               = 'nova',
+  $qpid_cluster            = false,
+  $qpid_nodes              = [$internal_address],
+  $qpid_port               = '5672',
+  $qpid_node_ip_address    = undef,
   # network configuration
   # this assumes that it is a flat network manager
   $network_manager         = 'nova.network.manager.FlatDHCPManager',
@@ -119,10 +139,14 @@ class openstack::controller (
   $glance_db_user          = 'glance',
   $glance_db_dbname        = 'glance',
   $glance_api_servers      = undef,
+  $glance_image_cache_max_size = '10737418240',
   # Nova
   $nova_db_user            = 'nova',
   $nova_db_dbname          = 'nova',
   $purge_nova_config       = false,
+  # Ceilometer
+  $ceilometer_db_user      = 'ceilometer',
+  $ceilometer_db_dbname    = 'ceilometer',
   # Horizon
   $cache_server_ip         = ['127.0.0.1'],
   $cache_server_port       = '11211',
@@ -131,6 +155,7 @@ class openstack::controller (
   $horizon_app_links       = undef,
   # General
   $verbose                 = 'False',
+  $debug                   = 'False',
   $export_resources        = true,
   # if the cinder management components should be installed
   $cinder_user_password    = 'cinder_user_pass',
@@ -141,21 +166,16 @@ class openstack::controller (
   $cinder_volume_group     = 'cinder-volumes',
   #
   $quantum                 = false,
-  $quantum_user_password   = 'quantum_pass',
-  $quantum_db_password     = 'quantum_pass',
-  $quantum_db_user         = 'quantum',
-  $quantum_db_dbname       = 'quantum',
+  $quantum_config          = {},
   $quantum_network_node    = false,
   $quantum_netnode_on_cnt  = false,
-  $quantum_gre_bind_addr   = undef,
-  $quantum_external_ipinfo = {},
   $segment_range           = '1:4094',
   $tenant_network_type     = 'gre',
   $enabled                 = true,
   $api_bind_address        = '0.0.0.0',
   $service_endpoint        = '127.0.0.1',
   $galera_cluster_name     = 'openstack',
-  $primary_controller      = primary_controller,
+  $primary_controller      = false,
   $galera_node_address     = '127.0.0.1',
   $glance_backend          = 'file',
   $galera_nodes            = ['127.0.0.1'],
@@ -163,25 +183,36 @@ class openstack::controller (
   $manage_volumes          = false,
   $nv_physical_volume      = undef,
   $use_syslog              = false,
+  $syslog_log_level = 'WARNING',
+  $syslog_log_facility_glance   = 'LOCAL2',
+  $syslog_log_facility_cinder   = 'LOCAL3',
+  $syslog_log_facility_quantum  = 'LOCAL4',
+  $syslog_log_facility_nova     = 'LOCAL6',
+  $syslog_log_facility_keystone = 'LOCAL7',
   $horizon_use_ssl         = false,
   $nova_rate_limits        = undef,
   $cinder_rate_limits      = undef,
   $ha_mode                 = false,
+  $nameservers             = undef,
 ) {
 
 
   # Ensure things are run in order
   Class['openstack::db::mysql'] -> Class['openstack::keystone']
+  if ($ceilometer) {
+    Class['openstack::db::mysql'] -> Class['openstack::ceilometer']
+  }
   Class['openstack::db::mysql'] -> Class['openstack::glance']
   Class['openstack::db::mysql'] -> Class['openstack::nova::controller']
-  if defined(Class['openstack::cinder']) {
-        Class['openstack::db::mysql'] -> Class['openstack::cinder']
-  }
+  Class['openstack::db::mysql'] -> Cinder_config <||>
+
+  Class["${queue_provider}::server"] -> Nova_config <||>
+  Class["${queue_provider}::server"] -> Cinder_config <||>
+  Class["${queue_provider}::server"] -> Neutron_config <||>
 
   $rabbit_addresses = inline_template("<%= @rabbit_nodes.map {|x| x + ':5672'}.join ',' %>")
-    $memcached_addresses =  inline_template("<%= @cache_server_ip.collect {|ip| ip + ':' + @cache_server_port }.join ',' %>")
- 
-  
+  $memcached_addresses =  inline_template("<%= @cache_server_ip.collect {|ip| ip + ':' + @cache_server_port }.join ',' %>")
+
   nova_config {'DEFAULT/memcached_servers':    value => $memcached_addresses;
   }
 
@@ -204,27 +235,34 @@ class openstack::controller (
       nova_db_user           => $nova_db_user,
       nova_db_password       => $nova_db_password,
       nova_db_dbname         => $nova_db_dbname,
+      ceilometer             => $ceilometer,
+      ceilometer_db_user     => $ceilometer_db_user,
+      ceilometer_db_password => $ceilometer_db_password,
+      ceilometer_db_dbname   => $ceilometer_db_dbname,
       cinder                 => $cinder,
       cinder_db_user         => $cinder_db_user,
       cinder_db_password     => $cinder_db_password,
       cinder_db_dbname       => $cinder_db_dbname,
-      quantum                => $quantum,
-      quantum_db_user        => $quantum_db_user,
-      quantum_db_password    => $quantum_db_password,
-      quantum_db_dbname      => $quantum_db_dbname,
+      neutron                => $quantum,
+      neutron_db_user        => $quantum ? { true => $quantum_config['database']['username'], default=>undef},
+      neutron_db_password    => $quantum ? { true => $quantum_config['database']['passwd'], default=>""},
+      neutron_db_dbname      => $quantum ? { true => $quantum_config['database']['dbname'], default=>undef},
       allowed_hosts          => $allowed_hosts,
       enabled                => $enabled,
       galera_cluster_name    => $galera_cluster_name,
       primary_controller     => $primary_controller,
       galera_node_address    => $galera_node_address ,
+      #db_host                => $internal_address,
       galera_nodes           => $galera_nodes,
       custom_setup_class     => $custom_mysql_setup_class,
       mysql_skip_name_resolve => $mysql_skip_name_resolve,
+      use_syslog             => $use_syslog,
     }
   }
   ####### KEYSTONE ###########
   class { 'openstack::keystone':
     verbose               => $verbose,
+    debug                 => $debug,
     db_type               => $db_type,
     db_host               => $db_host,
     db_password           => $keystone_db_password,
@@ -243,17 +281,22 @@ class openstack::controller (
     cinder                => $cinder,
     cinder_user_password  => $cinder_user_password,
     quantum               => $quantum,
+    quantum_config        => $quantum_config,
+    ceilometer                => $ceilometer,
+    ceilometer_user_password  => $ceilometer_user_password,
     bind_host             => $api_bind_address,
-    quantum_user_password => $quantum_user_password,
     enabled               => $enabled,
     package_ensure        => $::openstack_keystone_version,
     use_syslog            => $use_syslog,
+    syslog_log_facility   => $syslog_log_facility_keystone,
+    syslog_log_level      => $syslog_log_level,
   }
 
 
   ######## BEGIN GLANCE ##########
   class { 'openstack::glance':
     verbose                   => $verbose,
+    debug                     => $debug,
     db_type                   => $db_type,
     db_host                   => $db_host,
     glance_db_user            => $glance_db_user,
@@ -267,6 +310,9 @@ class openstack::controller (
     glance_backend            => $glance_backend,
     registry_host             => $service_endpoint,
     use_syslog                => $use_syslog,
+    syslog_log_facility       => $syslog_log_facility_glance,
+    syslog_log_level          => $syslog_log_level,
+    glance_image_cache_max_size => $glance_image_cache_max_size,
   }
 
   ######## BEGIN NOVA ###########
@@ -284,12 +330,13 @@ class openstack::controller (
   }
   else {
     $enabled_apis = 'ec2,osapi_compute,osapi_volume'
-  } 
+  }
 
   class { 'openstack::nova::controller':
     # Database
     db_host                 => $db_host,
     # Network
+    nameservers             => $nameservers,
     network_manager         => $network_manager,
     floating_range          => $floating_range,
     fixed_range             => $fixed_range,
@@ -305,14 +352,12 @@ class openstack::controller (
     multi_host              => $multi_host,
     network_config          => $network_config,
     keystone_host           => $service_endpoint,
+    service_endpoint        => $service_endpoint,
     # Quantum
     quantum                 => $quantum,
-    quantum_user_password   => $quantum_user_password,
-    quantum_db_password     => $quantum_db_password,
+    quantum_config          => $quantum_config,
     quantum_network_node    => $quantum_network_node,
     quantum_netnode_on_cnt  => $quantum_netnode_on_cnt,
-    quantum_gre_bind_addr   => $quantum_gre_bind_addr,
-    quantum_external_ipinfo => $quantum_external_ipinfo,
     segment_range           => $segment_range,
     tenant_network_type     => $tenant_network_type,
     # Nova
@@ -320,6 +365,8 @@ class openstack::controller (
     nova_db_password        => $nova_db_password,
     nova_db_user            => $nova_db_user,
     nova_db_dbname          => $nova_db_dbname,
+    # AMQP
+    queue_provider          => $queue_provider,
     # Rabbit
     rabbit_user             => $rabbit_user,
     rabbit_password         => $rabbit_password,
@@ -328,16 +375,28 @@ class openstack::controller (
     rabbit_node_ip_address  => $rabbit_node_ip_address,
     rabbit_port             => $rabbit_port,
     rabbit_ha_virtual_ip    => $rabbit_ha_virtual_ip,
+    # Qpid
+    qpid_password           => $qpid_password,
+    qpid_user               => $qpid_user,
+    #qpid_cluster            => $qpid_cluster,
+    qpid_nodes              => $qpid_nodes,
+    qpid_port               => $qpid_port,
+    qpid_node_ip_address    => $qpid_node_ip_address,
     # Glance
     glance_api_servers      => $glance_api_servers,
     # General
     verbose                 => $verbose,
+    primary_controller      => $primary_controller,
+    debug                   => $debug,
     enabled                 => $enabled,
     exported_resources      => $export_resources,
     enabled_apis            => $enabled_apis,
     api_bind_address        => $api_bind_address,
     ensure_package          => $::openstack_version['nova'],
     use_syslog              => $use_syslog,
+    syslog_log_facility     => $syslog_log_facility_nova,
+    syslog_log_facility_quantum => $syslog_log_facility_quantum,
+    syslog_log_level        => $syslog_log_level,
     nova_rate_limits        => $nova_rate_limits,
     cinder                  => $cinder
   }
@@ -346,44 +405,78 @@ class openstack::controller (
   if $cinder {
     if !defined(Class['openstack::cinder']) {
       class {'openstack::cinder':
-      sql_connection       => "mysql://${cinder_db_user}:${cinder_db_password}@${db_host}/${cinder_db_dbname}?charset=utf8",
-      rabbit_password      => $rabbit_password,
-      rabbit_host          => false,
-      rabbit_nodes         => $rabbit_nodes,
-      volume_group         => $cinder_volume_group,
-      physical_volume      => $nv_physical_volume,
-      manage_volumes       => $manage_volumes,
-      enabled              => true,
-      glance_api_servers   => "${service_endpoint}:9292",
-      auth_host            => $service_endpoint,
-      bind_host            => $api_bind_address,
-      iscsi_bind_host      => $cinder_iscsi_bind_addr,
-      cinder_user_password => $cinder_user_password,
-      use_syslog           => $use_syslog,
-      cinder_rate_limits   => $cinder_rate_limits,
-      rabbit_ha_virtual_ip => $rabbit_ha_virtual_ip,
-    }
-    }
-  }
-  else { 
-  if $manage_volumes {
-    
-    class { 'nova::volume':
-      ensure_package => $::openstack_version['nova'],
-      enabled        => true,
-      }   
-    class { 'nova::volume::iscsi':
-      iscsi_ip_address => $api_bind_address,
-      physical_volume  => $nv_physical_volume,
-      }   
-  }
-  # Set up nova-volume
-  } 
-
+        sql_connection       => "mysql://${cinder_db_user}:${cinder_db_password}@${db_host}/${cinder_db_dbname}?charset=utf8",
+        rabbit_password      => $rabbit_password,
+        rabbit_host          => false,
+        rabbit_nodes         => $rabbit_nodes,
+        volume_group         => $cinder_volume_group,
+        physical_volume      => $nv_physical_volume,
+        manage_volumes       => $manage_volumes,
+        enabled              => true,
+        glance_api_servers   => "${service_endpoint}:9292",
+        auth_host            => $service_endpoint,
+        bind_host            => $api_bind_address,
+        iscsi_bind_host      => $cinder_iscsi_bind_addr,
+        cinder_user_password => $cinder_user_password,
+        use_syslog           => $use_syslog,
+        verbose              => $verbose,
+        debug                => $debug,
+        syslog_log_facility  => $syslog_log_facility_cinder,
+        syslog_log_level     => $syslog_log_level,
+        cinder_rate_limits   => $cinder_rate_limits,
+        rabbit_ha_virtual_ip => $rabbit_ha_virtual_ip,
+        queue_provider       => $queue_provider,
+        qpid_password        => $qpid_password,
+        qpid_user            => $qpid_user,
+        qpid_nodes           => $qpid_nodes,
+      } # end class
+    } else { # defined
+      if $manage_volumes {
+      # Set up nova-volume
+        class { 'nova::volume':
+          ensure_package => $::openstack_version['nova'],
+          enabled        => true,
+        }
+        class { 'nova::volume::iscsi':
+          iscsi_ip_address => $api_bind_address,
+          physical_volume  => $nv_physical_volume,
+        }
+      } #end manage_volumes
+    } #end else
+  } #end cinder
   if !defined(Class['memcached']){
     class { 'memcached':
       #listen_ip => $api_bind_address,
-    } 
+    }
+  }
+
+  ######## Ceilometer ########
+
+  if ($ceilometer) {
+    class { 'openstack::ceilometer':
+      verbose              => $verbose,
+      debug                => $debug,
+      use_syslog           => $use_syslog,
+      db_type              => $db_type,
+      db_host              => $db_host,
+      db_user              => $ceilometer_db_user,
+      db_password          => $ceilometer_db_password,
+      db_dbname            => $ceilometer_db_dbname,
+      metering_secret      => $ceilometer_metering_secret,
+      rabbit_password      => $rabbit_password,
+      rabbit_userid        => $rabbit_user,
+      rabbit_host          => $rabbit_nodes[0],
+      rabbit_ha_virtual_ip => $rabbit_ha_virtual_ip,
+      queue_provider       => $queue_provider,
+      qpid_password        => $qpid_password,
+      qpid_userid          => $qpid_user,
+      qpid_nodes           => $qpid_nodes,
+      keystone_host        => $internal_address,
+      keystone_password    => $ceilometer_user_password,
+      bind_host            => $api_bind_address,
+      ha_mode              => $ha_mode,
+      on_controller        => true,
+    }
   }
 
   ######## Horizon ########
@@ -398,7 +491,10 @@ class openstack::controller (
     horizon_app_links => $horizon_app_links,
     keystone_host     => $service_endpoint,
     use_ssl           => $horizon_use_ssl,
-    django_debug      => $verbose
+    verbose           => $verbose,
+    debug             => $debug,
+    use_syslog        => $use_syslog,
+    log_level         => $syslog_log_level,
   }
 
 }

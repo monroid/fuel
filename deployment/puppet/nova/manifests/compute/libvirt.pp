@@ -1,3 +1,4 @@
+#
 class nova::compute::libvirt (
   $libvirt_type = 'kvm',
   $vncserver_listen = '127.0.0.1'
@@ -12,16 +13,16 @@ class nova::compute::libvirt (
 #      priority => 10,
 #      before   => [Package['libvirt']]
 #    }->
-    
+
 
 #    package { 'qemu':
 #      ensure => present,
 #    }
- 
-    exec { 'symlink-qemu-kvm': 
+
+    exec { 'symlink-qemu-kvm':
       command => "/bin/ln -sf /usr/libexec/qemu-kvm /usr/bin/qemu-system-x86_64",
-    } 
-                   
+    }
+
     stdlib::safe_package {'dnsmasq-utils':}
 
     package { 'avahi':
@@ -92,5 +93,16 @@ class nova::compute::libvirt (
     'DEFAULT/libvirt_type':     value => $libvirt_type;
     'DEFAULT/connection_type':  value => 'libvirt';
     'DEFAULT/vncserver_listen': value => $vncserver_listen;
+    'DEFAULT/disk_cachemodes': value => '"file=writethrough"';
+  }
+
+if str2bool($::is_virtual) {
+    nova_config {
+      'DEFAULT/libvirt_cpu_mode': value => 'none';
+    }
+  } else {
+    nova_config {
+      'DEFAULT/libvirt_cpu_mode': value => 'host-model';
+    }
   }
 }

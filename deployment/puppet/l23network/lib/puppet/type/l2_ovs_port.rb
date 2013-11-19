@@ -36,23 +36,49 @@ Puppet::Type.newtype(:l2_ovs_port) do
       end
     end
 
-    newparam(:port_properties) do
+    newparam(:port_properties, :array_matching => :all) do
       defaultto([])
       desc "Array of port properties"
-      validate do |val|
-        if not (val.is_a?(Array) or val.is_a?(String)) # String need for array with one element. it's a puppet's feature
-          fail("port_properties must be an array (not #{val.class}).")
-        end
+      munge do |val|
+        Array(val)
       end
     end
 
     newparam(:interface_properties) do
       defaultto([])
       desc "Array of port interface properties"
+      munge do |val|
+        Array(val)
+      end
+    end
+
+    newparam(:tag) do
+      defaultto(0)
+      desc "802.1q tag"
       validate do |val|
-        if not (val.is_a?(Array) or val.is_a?(String)) # String need for array with one element. it's a puppet's feature
-          fail("interface_properties must be an array (not #{val.class}).")
+        if !val.is_a?(Integer) or (val < 0 or val > 4094)
+          fail("Wrong 802.1q tag. Tag must be an integer in 2..4094 interval")
         end
+      end
+      munge do |val|
+        val.to_i
+      end
+    end
+
+    newparam(:trunks, :array_matching => :all) do
+      defaultto([])
+      desc "Array of trunks id, for configure patch's ends as ports in trunk mode"
+      #
+      validate do |val|
+        val = Array(val)  # prevents puppet conversion array of one Int to Int
+        for i in val
+          if !i.is_a?(Integer) or (i < 0 or i > 4094)
+            fail("Wrong 802.1q tag. Tag must be an integer in 2..4094 interval")
+          end
+        end
+      end
+      munge do |val|
+        Array(val)
       end
     end
 

@@ -16,8 +16,11 @@
 # $keystone_port        public port of the keystone service
 # $keystone_scheme      http or https
 # $keystone_default_role default keystone role for new users
-# $django_debug         True/False. enable/disables debugging. defaults to false
+# $django_debug         True/False. enable/disables debugging (debug level). defaults to false
+# $django_verbose       True/False. enable/disables verbose logging (info level). defaults to false
+# $log_level            Syslog level would be used for logging. If Verbose -> INFO, Debug -> DEBUG, otherwise -> the value given
 # $api_result_limit     max number of Swift containers/objects to display on a single page
+# $use_syslog           Redirect all apache logging to syslog. Required for FUEL-WEB.
 #
 class horizon(
   $secret_key,
@@ -33,11 +36,13 @@ class horizon(
   $keystone_scheme       = 'http',
   $keystone_default_role = 'Member',
   $django_debug          = 'False',
+  $django_verbose        = 'False',
   $api_result_limit      = 1000,
   $http_port             = 80,
   $https_port            = 443,
   $use_ssl               = false,
-  $log_level             = 'DEBUG',
+  $log_level             = 'WARNING',
+  $use_syslog            = false,
 ) {
 
   include horizon::params
@@ -46,7 +51,8 @@ class horizon(
   $wsgi_user     = $::horizon::params::apache_user
   $wsgi_group    = $::horizon::params::apache_group
 
-  package { ["$::horizon::params::http_service", "$::horizon::params::http_modwsgi"]:
+  package { [$::horizon::params::http_service,
+             $::horizon::params::http_modwsgi]:
     ensure => present,
   }
 
@@ -56,12 +62,17 @@ class horizon(
     require => Package[$::horizon::params::http_service],
   }
 
+  define horizon_safe_package(){
+    if ! defined(Package[$name]){
+      @package { $name : }
+    }
+  }
+
   File {
     require => Package['dashboard'],
     owner   => $wsgi_user,
     group   => $wsgi_group,
   }
-
   file { $::horizon::params::local_settings_path:
     content => template('horizon/local_settings.py.erb'),
     mode    => '0644',
@@ -90,7 +101,8 @@ class horizon(
   }
 
   if $generate_sslcert_names {
-    $sslcert_pair = regsubst([$::horizon::params::ssl_cert_file, $::horizon::params::ssl_key_file],
+    $sslcert_pair = regsubst([$::horizon::params::ssl_cert_file,
+                              $::horizon::params::ssl_key_file],
                         '(.+\/).+(\..+)', "\1${::domain}\2")
 
     $ssl_cert_file = $sslcert_pair[0]
@@ -119,11 +131,22 @@ class horizon(
     }
   }
 
-  file { $::horizon::params::logdir:
+  $log_user  = $::osfamily ? { 'Debian'=>'horizon', default=>$wsgi_user}
+  $log_group = $::osfamily ? { 'Debian'=>'horizon', default=>$wsgi_group}
+  file { $horizon::params::logdir:
     ensure  => directory,
     mode    => '0751',
-    before  => Service['httpd'],
+    owner   => $log_user,
+    group   => $log_group,
+  } ->
+  file { "${horizon::params::logdir}/horizon.log":
+    ensure  => present,
+    mode    => '0650',
+    owner   => $log_user,
+    group   => $log_group,
   }
+  Package["dashboard"] -> File[$horizon::params::logdir]
+  File["${horizon::params::logdir}/horizon.log"] -> Service['httpd']
 
   file { $::horizon::params::vhosts_file:
     content => template('horizon/vhosts.erb'),
@@ -150,30 +173,44 @@ class horizon(
   }
 
   case $::osfamily {
-    'RedHat': { 
+    'RedHat': {
+      package { $::horizon::params::horizon_additional_packages : ensure => present }
       file { '/etc/httpd/conf.d/wsgi.conf':
         mode   => 644,
         owner  => root,
         group  => root,
         content => "LoadModule wsgi_module modules/mod_wsgi.so\n",
-        require => Package["$::horizon::params::http_service", "$::horizon::params::http_modwsgi"],
+        require => Package[$::horizon::params::http_service,
+                           $::horizon::params::http_modwsgi],
         before  => Package['dashboard'],
       }  # ensure there is a HTTP redirect from / to /dashboard
 
-      if $use_ssl {
+      if $use_ssl =~ /^(default|exist|custom)$/ {
         package { 'mod_ssl':
           ensure => present,
           before => Service['httpd'],
         }
       }
 
-      augeas { "remove_listen_directive": 
+      augeas { 'remove_listen_directive':
         context => "/files/etc/httpd/conf/httpd.conf",
-        changes => [ 
+        changes => [
           "rm directive[. = 'Listen']"
         ],
         before  => Service['httpd'],
-      } 
+      }
+
+      #todo: may be need fix
+      Package['dashboard'] -> Exec['horizon_compress_styles']
+      Package['dashboard'] ~> Exec['horizon_compress_styles']
+      Package[$::horizon::params::horizon_additional_packages] -> Exec['horizon_compress_styles']
+      exec { 'horizon_compress_styles':
+        path    => '/bin:/usr/bin:/sbin:/usr/sbin',
+        cwd     => '/usr/share/openstack-dashboard',
+        command => 'python manage.py compress',
+        refreshonly => true
+      }
+      Exec['horizon_compress_styles'] ~> Service['httpd']
     }
     'Debian': {
       A2mod {
@@ -184,7 +221,7 @@ class horizon(
 
       a2mod { 'wsgi': }
 
-      if $use_ssl {
+      if $use_ssl =~ /^(default|exist|custom)$/ {
         a2mod { ['rewrite', 'ssl']: }
       }
 
@@ -203,10 +240,10 @@ class horizon(
   service { 'httpd':
     name      => $::horizon::params::http_service,
     ensure    => 'running',
-    enable    => true,
-    require   => Package["$::horizon::params::http_service", "$::horizon::params::http_modwsgi"],
-    subscribe => File["$::horizon::params::local_settings_path", "$::horizon::params::logdir"]
+    enable    => true
   }
+  File[$::horizon::params::local_settings_path, $::horizon::params::logdir] ~> Service['httpd']
+  Package[$::horizon::params::http_service, $::horizon::params::http_modwsgi] -> Service['httpd']
 
   if $cache_server_ip =~ /^127\.0\.0\.1/ {
     Class['memcached'] -> Class['horizon']

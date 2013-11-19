@@ -8,7 +8,7 @@
 #   Specify interface.
 #
 # [*ipaddr*]
-#   IP address for interface. Can contain IP address, 'dhcp' 
+#   IP address for interface. Can contain IP address, 'dhcp'
 #   or 'none' (with no IP address).
 #   Can be an array of CIDR IP addresses ['192.168.1.3/24','10.0.0.4/16']
 #   for multiple IPs on an interface. In this case netmask parameter is ignored.
@@ -21,7 +21,7 @@
 #   you must specify a parent interface in this option
 #
 # [*bond_master*]
-#   This parameter sets the bond_master interface and says that this interface 
+#   This parameter sets the bond_master interface and says that this interface
 #   is a slave for bondX interface.
 #
 # [*bond_mode*]
@@ -39,7 +39,7 @@
 #
 # [*gateway*]
 #   Specify default gateway if need.
-#   You can specify IP address, or 'save' for save default route 
+#   You can specify IP address, or 'save' for save default route
 #   if it lies through this interface now.
 #
 # [*dns_nameservers*]
@@ -70,7 +70,7 @@
 #   Timeout for check_by_ping
 #
 #
-# If you configure 802.1q vlan interfaces then you must declare relationships 
+# If you configure 802.1q vlan interfaces then you must declare relationships
 # between them in site.pp.
 # Ex: L23network:L3:Ifconfig['eth2'] -> L23network:L3:Ifconfig['eth2.128']
 #
@@ -92,7 +92,7 @@ define l23network::l3::ifconfig (
     $dhcp_nowait     = false,
     $ifname_order_prefix = false,
     $check_by_ping   = 'gateway',
-    $check_by_ping_timeout = 120,
+    $check_by_ping_timeout = 30,
     #todo: label => "XXX", # -- "ip addr add..... label XXX"
 ){
   include ::l23network::params
@@ -121,18 +121,18 @@ define l23network::l3::ifconfig (
     # getting single IP address for interface. It can be not address, but method.
     $ipaddr_aliases = undef
     case $ipaddr {
-      'dhcp':  { 
-        $method = 'dhcp' 
+      'dhcp':  {
+        $method = 'dhcp'
         $effective_ipaddr  = $ipaddr
         $effective_netmask = undef
       }
-      'none':  { 
-        $method = 'manual' 
+      'none':  {
+        $method = 'manual'
         $effective_ipaddr  = $ipaddr
         $effective_netmask = undef
       }
-      default: { 
-        $method = 'static' 
+      default: {
+        $method = 'static'
         if $ipaddr =~ /\/\d{1,2}\s*$/ {
           # ipaddr can be cidr-notated
           $effective_ipaddr = cidr_to_ipaddr($ipaddr)
@@ -164,7 +164,7 @@ define l23network::l3::ifconfig (
           class{'l23network::l2::centos_upndown_scripts': }
         }
       }
-      Anchor <| title == 'l23network::l2::centos_upndown_scripts' |> 
+      Anchor <| title == 'l23network::l2::centos_upndown_scripts' |>
         -> L23network::L3::Ifconfig <| interface == "$interface" |>
     }
     default: {
@@ -233,17 +233,17 @@ define l23network::l3::ifconfig (
   }
 
   if $method == 'static' {
-    if $gateway and gateway != 'save' {
+    if $gateway and $gateway != 'save' {
       $def_gateway = $gateway
     } else {
       # recognizing default gateway
-      if gateway == 'save' and $::l3_default_route and $::l3_default_route_interface == $interface {
+      if $gateway == 'save' and $::l3_default_route and $::l3_default_route_interface == $interface {
         $def_gateway = $::l3_default_route
       } else {
         $def_gateway = undef
       }
     }
-    if $::osfamily == 'RedHat' and $def_gateway and !defined(L23network::L3::Defaultroute[$def_gateway]) {
+    if ($::osfamily == 'RedHat' or $::osfamily == 'Debian') and $def_gateway and !defined(L23network::L3::Defaultroute[$def_gateway]) {
       l23network::l3::defaultroute { $def_gateway: }
     }
   } else {
@@ -291,7 +291,13 @@ define l23network::l3::ifconfig (
   l3_if_downup {"$interface":
     check_by_ping => $check_by_ping,
     check_by_ping_timeout => $check_by_ping_timeout,
+    #require       => File["$interface_file"], ## do not enable it!!! It affect requirements interface from interface in some cases.
     subscribe     => File["$interface_file"],
     refreshonly   => true,
   }
+
+  # Ensure default route will be put in the right order
+  # if defined(L23network::L3::Defaultroute[$def_gateway]) {
+  #   L3_if_downup <||> -> Defaultroute[$def_gateway]
+  # }
 }

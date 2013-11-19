@@ -17,7 +17,8 @@
 # [keystone_db_user] Name of keystone db user. Optional. Defaults to  'keystone'
 # [keystone_db_dbname] Name of keystone DB. Optional. Defaults to  'keystone'
 # [keystone_admin_tenant] Name of keystone admin tenant. Optional. Defaults to  'admin'
-# [verbose] Log verbosely. Optional. Defaults to  'False'
+# [verbose] Rather to print more verbose (INFO+) output. If non verbose and non debug, would give syslog_log_level (default is WARNING) output. Optional. Defaults to false.
+# [debug] Rather to print even more verbose (DEBUG+) output. If true, would ignore verbose option. Optional. Defaults to false.
 # [bind_host] Address that keystone binds to. Optional. Defaults to  '0.0.0.0'
 # [internal_address] Internal address for keystone. Optional. Defaults to  $public_address
 # [admin_address] Keystone admin address. Optional. Defaults to  $internal_address
@@ -25,6 +26,10 @@
 # [nova] Set up nova endpoints and auth. Optional. Defaults to  true
 # [enabled] If the service is active (true) or passive (false).
 #   Optional. Defaults to  true
+# [use_syslog] Rather or not service should log to syslog. Optional.
+# [syslog_log_facility] Facility for syslog, if used. Optional. Note: duplicating conf option
+#       wouldn't have been used, but more powerfull rsyslog features managed via conf template instead
+# [syslog_log_level] logging level for non verbose and non debug mode. Optional.
 #
 # === Example
 #
@@ -47,13 +52,14 @@ class openstack::keystone (
   $glance_user_password,
   $nova_user_password,
   $cinder_user_password,
-  $quantum_user_password,
+  $ceilometer_user_password,
   $public_address,
   $db_type                  = 'mysql',
   $db_user                  = 'keystone',
   $db_name                  = 'keystone',
   $admin_tenant             = 'admin',
   $verbose                  = 'False',
+  $debug                    = 'False',
   $bind_host                = '0.0.0.0',
   $internal_address         = false,
   $admin_address            = false,
@@ -66,16 +72,23 @@ class openstack::keystone (
   $cinder_public_address    = false,
   $cinder_internal_address  = false,
   $cinder_admin_address     = false,
+  $quantum_config           = {},
   $quantum_public_address   = false,
   $quantum_internal_address = false,
   $quantum_admin_address    = false,
+  $ceilometer_public_address   = false,
+  $ceilometer_internal_address = false,
+  $ceilometer_admin_address    = false,
   $glance                   = true,
   $nova                     = true,
   $cinder                   = true,
+  $ceilometer               = true,
   $quantum                  = true,
   $enabled                  = true,
-  $package_ensure = present,
-  $use_syslog = false,
+  $package_ensure           = present,
+  $use_syslog               = false,
+  $syslog_log_facility      = 'LOCAL7',
+  $syslog_log_level = 'WARNING',
 ) {
 
   # Install and configure Keystone
@@ -157,17 +170,34 @@ class openstack::keystone (
   } else {
     $quantum_admin_real = $admin_real
   }
+  if($ceilometer_public_address) {
+    $ceilometer_public_real = $ceilometer_public_address
+  } else {
+    $ceilometer_public_real = $public_address
+  }
+  if($ceilometer_internal_address) {
+    $ceilometer_internal_real = $ceilometer_internal_address
+  } else {
+    $ceilometer_internal_real = $internal_real
+  }
+  if($ceilometer_admin_address) {
+    $ceilometer_admin_real = $ceilometer_admin_address
+  } else {
+    $ceilometer_admin_real = $admin_real
+  }
 
   class { '::keystone':
     verbose    => $verbose,
-    debug      => $verbose,
+    debug      => $debug,
     catalog_type   => 'sql',
     admin_token    => $admin_token,
     enabled        => $enabled,
     sql_connection => $sql_conn,
     bind_host	=> $bind_host,
     package_ensure => $package_ensure,
-    use_syslog => $use_syslog
+    use_syslog => $use_syslog,
+    syslog_log_facility => $syslog_log_facility,
+    syslog_log_level    => $syslog_log_level,
   }
 
   if ($enabled) {
@@ -217,11 +247,19 @@ class openstack::keystone (
       }
     }
     if $quantum {
-      class { 'quantum::keystone::auth':
-        password         => $quantum_user_password,
+      class { 'neutron::keystone::auth':
+        neutron_config   => $quantum_config,
         public_address   => $quantum_public_real,
         admin_address    => $quantum_admin_real,
         internal_address => $quantum_internal_real,
+      }
+    }
+    if $ceilometer {
+      class { 'ceilometer::keystone::auth':
+        password         => $ceilometer_user_password,
+        public_address   => $ceilometer_public_real,
+        admin_address    => $ceilometer_admin_real,
+        internal_address => $ceilometer_internal_real,
       }
     }
   }
